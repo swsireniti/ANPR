@@ -1,0 +1,35 @@
+# Qt
+*.user
+*.pro.user.*
+.qmake.stash
+
+# Build folders
+build/
+debug/
+release/
+
+# Generated Makefiles
+Makefile
+Makefile.Debug
+Makefile.Release
+
+# Executables
+*.exe
+
+# MSVC
+*.dll
+*.lib
+*.exp
+*.obj
+*.pdb
+*.ilk
+*.idb
+
+# Logs
+*.log
+
+# Dataset
+captures/
+
+# Videos
+Video/
