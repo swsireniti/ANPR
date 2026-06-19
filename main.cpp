@@ -10,6 +10,17 @@
 #include <vector>
 #include <set>
 #include <map>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
+#include <ctime>
+
+
+
+
+
+
+
 
 
 
@@ -533,6 +544,469 @@ void runVideo(const std::string& videoPath,
 }
 
 
+
+
+
+//
+struct ParkingCar
+{
+    std::string plate;
+    std::chrono::system_clock::time_point enterTime;
+    std::chrono::system_clock::time_point lastSeenTime;
+    double enterVideoSec = 0.0;
+    double lastSeenVideoSec = 0.0;
+    int seenCount = 0;
+    bool confirmed = false;
+};
+
+std::string formatDateTime(std::chrono::system_clock::time_point timePoint)
+{
+    std::time_t time =
+        std::chrono::system_clock::to_time_t(timePoint);
+
+    std::tm tm =
+        *std::localtime(&time);
+
+    std::ostringstream ss;
+
+    ss << std::put_time(
+        &tm,
+        "%Y-%m-%d %H:%M:%S"
+    );
+
+    return ss.str();
+}
+
+void appendParkingLog(const ParkingCar& car,
+                      std::chrono::system_clock::time_point exitTime,
+                      double durationSec)
+{
+    const std::string logPath =
+        "/home/pi/yolo/parking_log.csv";
+
+    bool newFile =
+        !QFileInfo(QString::fromStdString(logPath)).exists();
+
+    std::ofstream file(
+        logPath,
+        std::ios::app
+    );
+
+    if(!file.is_open())
+    {
+        std::cout
+            << "parking_log.csv open error"
+            << std::endl;
+        return;
+    }
+
+    if(newFile)
+    {
+        file
+            << "plate,enter_time,exit_time,duration_seconds"
+            << std::endl;
+    }
+
+    file
+        << car.plate
+        << ","
+        << formatDateTime(car.enterTime)
+        << ","
+        << formatDateTime(exitTime)
+        << ","
+        << (int)durationSec
+        << std::endl;
+}
+
+void drawParkingInfo(cv::Mat& frame,
+                     const std::vector<std::string>& events,
+                     int activeCount)
+{
+    int panelHeight = 110;
+    int top = frame.rows - panelHeight;
+
+    if(top < 0)
+        return;
+
+    cv::Mat overlay = frame.clone();
+
+    cv::rectangle(
+        overlay,
+        cv::Rect(0, top, frame.cols, panelHeight),
+        cv::Scalar(20, 20, 20),
+        cv::FILLED
+        );
+
+    cv::addWeighted(
+        overlay,
+        0.70,
+        frame,
+        0.30,
+        0.0,
+        frame
+        );
+
+    cv::putText(
+        frame,
+        cv::format("PARKING LOG   ACTIVE %d", activeCount),
+        cv::Point(20, top + 30),
+        cv::FONT_HERSHEY_SIMPLEX,
+        0.8,
+        cv::Scalar(0,255,255),
+        2
+        );
+
+    int y = top + 65;
+    int start = 0;
+
+    if(events.size() > 2)
+        start = (int)events.size() - 2;
+
+    for(size_t i = start; i < events.size(); i++)
+    {
+        cv::putText(
+            frame,
+            events[i],
+            cv::Point(20, y),
+            cv::FONT_HERSHEY_SIMPLEX,
+            0.65,
+            cv::Scalar(255,255,255),
+            2
+            );
+
+        y += 30;
+    }
+}
+
+void runParkingCamera(const std::string& videoPath,
+                      cv::dnn::Net& yoloNet,
+                      cv::dnn::Net& ocrNet)
+{
+    cv::VideoCapture cap(videoPath);
+
+    if(!cap.isOpened())
+    {
+        std::cout
+            << "Video open error: "
+            << videoPath
+            << std::endl;
+        return;
+    }
+
+    QDir().mkpath("/home/pi/yolo/captures");
+
+    cv::Mat frame;
+
+    int frameCounter = 0;
+
+    const int processEveryFrame = 3;
+    const int confirmCount = 3;
+    const double exitTimeoutSec = 20.0;
+
+    double fpsVideo =
+        cap.get(cv::CAP_PROP_FPS);
+
+    if(fpsVideo <= 0.0)
+        fpsVideo = 30.0;
+
+    int width =
+        (int)cap.get(cv::CAP_PROP_FRAME_WIDTH);
+
+    int height =
+        (int)cap.get(cv::CAP_PROP_FRAME_HEIGHT);
+
+    cv::VideoWriter writer;
+
+    writer.open(
+        "/home/pi/yolo/parking_demo.mp4",
+        cv::VideoWriter::fourcc('m','p','4','v'),
+        fpsVideo / processEveryFrame,
+        cv::Size(width, height)
+        );
+
+    if(!writer.isOpened())
+    {
+        std::cout
+            << "VideoWriter open error: /home/pi/yolo/parking_demo.mp4"
+            << std::endl;
+    }
+
+    std::map<std::string, ParkingCar> activeCars;
+    std::vector<std::string> parkingEvents;
+
+    auto wallStart =
+        std::chrono::system_clock::now();
+
+    while(cap.read(frame))
+    {
+        frameCounter++;
+
+        double videoSec =
+            cap.get(cv::CAP_PROP_POS_MSEC) / 1000.0;
+
+        auto frameTime =
+            wallStart +
+            std::chrono::milliseconds(
+                (long long)(videoSec * 1000.0)
+            );
+
+        if(frameCounter % processEveryFrame != 0)
+            continue;
+
+        auto totalStart =
+            std::chrono::high_resolution_clock::now();
+
+        auto boxes =
+            detectPlates(frame, yoloNet);
+
+        for(auto& box : boxes)
+        {
+            cv::Rect safeBox =
+                box &
+                cv::Rect(
+                    0,
+                    0,
+                    frame.cols,
+                    frame.rows
+                    );
+
+            if(safeBox.width <= 0 ||
+               safeBox.height <= 0)
+            {
+                continue;
+            }
+
+            cv::Mat plate =
+                frame(safeBox).clone();
+
+            std::string text =
+                recognizePlate(
+                    plate,
+                    ocrNet
+                    );
+
+            if(text.length() == 8)
+            {
+                auto it =
+                    activeCars.find(text);
+
+                if(it == activeCars.end())
+                {
+                    ParkingCar car;
+
+                    car.plate = text;
+                    car.enterTime = frameTime;
+                    car.lastSeenTime = frameTime;
+                    car.enterVideoSec = videoSec;
+                    car.lastSeenVideoSec = videoSec;
+                    car.seenCount = 1;
+
+                    activeCars[text] = car;
+                }
+                else
+                {
+                    it->second.lastSeenTime = frameTime;
+                    it->second.lastSeenVideoSec = videoSec;
+                    it->second.seenCount++;
+
+                    if(!it->second.confirmed &&
+                       it->second.seenCount >= confirmCount)
+                    {
+                        it->second.confirmed = true;
+
+                        cv::imwrite(
+                            "/home/pi/yolo/captures/" +
+                            text +
+                            "_enter.jpg",
+                            plate
+                        );
+
+                        std::cout
+                            << "ENTER: "
+                            << text
+                            << " time="
+                            << formatDateTime(
+                                it->second.enterTime
+                            )
+                            << std::endl;
+                    }
+                }
+            }
+
+            cv::Scalar boxColor(255,255,0);
+
+            cv::rectangle(
+                frame,
+                safeBox,
+                boxColor,
+                2
+                );
+
+            cv::putText(
+                frame,
+                text,
+                cv::Point(
+                    safeBox.x,
+                    safeBox.y - 10
+                    ),
+                cv::FONT_HERSHEY_SIMPLEX,
+                0.8,
+                boxColor,
+                2
+                );
+        }
+
+        for(auto it = activeCars.begin();
+            it != activeCars.end(); )
+        {
+            double missingSec =
+                videoSec - it->second.lastSeenVideoSec;
+
+            if(it->second.confirmed &&
+               missingSec >= exitTimeoutSec)
+            {
+                double durationSec =
+                    it->second.lastSeenVideoSec -
+                    it->second.enterVideoSec;
+
+                std::cout
+                    << "EXIT: "
+                    << it->second.plate
+                    << " time="
+                    << formatDateTime(
+                        it->second.lastSeenTime
+                    )
+                    << " duration="
+                    << (int)durationSec
+                    << " sec"
+                    << std::endl;
+
+                appendParkingLog(
+                    it->second,
+                    it->second.lastSeenTime,
+                    durationSec
+                );
+
+                std::string eventText =
+                    it->second.plate +
+                    "  " +
+                    formatDateTime(it->second.enterTime) +
+                    " -> " +
+                    formatDateTime(it->second.lastSeenTime) +
+                    "  " +
+                    std::to_string((int)durationSec) +
+                    " sec";
+
+                parkingEvents.push_back(eventText);
+
+                it = activeCars.erase(it);
+            }
+            else if(!it->second.confirmed &&
+                    missingSec >= exitTimeoutSec)
+            {
+                it = activeCars.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+
+        auto totalEnd =
+            std::chrono::high_resolution_clock::now();
+
+        double totalMs =
+            std::chrono::duration<double,std::milli>(
+                totalEnd - totalStart
+                ).count();
+
+        double fps =
+            1000.0 / totalMs;
+
+        cv::putText(
+            frame,
+            cv::format("FPS %.2f", fps),
+            cv::Point(20,40),
+            cv::FONT_HERSHEY_SIMPLEX,
+            1.0,
+            cv::Scalar(0,255,255),
+            2
+            );
+
+        cv::putText(
+            frame,
+            cv::format("ACTIVE %d", (int)activeCars.size()),
+            cv::Point(20,80),
+            cv::FONT_HERSHEY_SIMPLEX,
+            1.0,
+            cv::Scalar(0,255,255),
+            2
+            );
+
+        drawParkingInfo(
+            frame,
+            parkingEvents,
+            (int)activeCars.size()
+        );
+
+        if(writer.isOpened())
+        {
+            writer.write(frame);
+        }
+
+        cv::imshow("PARKING", frame);
+
+        int key = cv::waitKey(1);
+
+        if(key == 27)
+            break;
+    }
+
+    for(auto& item : activeCars)
+    {
+        ParkingCar& car =
+            item.second;
+
+        if(!car.confirmed)
+            continue;
+
+        double durationSec =
+            car.lastSeenVideoSec -
+            car.enterVideoSec;
+
+        std::cout
+            << "EXIT_END_VIDEO: "
+            << car.plate
+            << " time="
+            << formatDateTime(car.lastSeenTime)
+            << " duration="
+            << (int)durationSec
+            << " sec"
+            << std::endl;
+
+        appendParkingLog(
+            car,
+            car.lastSeenTime,
+            durationSec
+        );
+    }
+
+    cap.release();
+
+    if(writer.isOpened())
+    {
+        writer.release();
+    }
+
+    cv::destroyAllWindows();
+}
+
+//
+
+
+
+
+
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
@@ -561,8 +1035,8 @@ int main(int argc, char *argv[])
         std::cout << "OCR loaded" << std::endl;
     }
 
-
-    runVideo("/media/pi/user/video/parkovka_anpr.mp4", net, ocrNet);
+runParkingCamera("/media/pi/user/video/parkovka_anpr.mp4", net, ocrNet);
+    //runVideo("/media/pi/user/video/parkovka_anpr.mp4", net, ocrNet);
     //runVideo("/media/pi/user/video/1_stable.mp4",net, ocrNet);
 
 
