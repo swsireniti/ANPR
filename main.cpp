@@ -693,6 +693,11 @@ void runParkingCamera(const std::string& videoPath,
         return;
     }
 
+    bool liveStream =
+        videoPath.rfind("rtsp://", 0) == 0 ||
+        videoPath.rfind("http://", 0) == 0 ||
+        videoPath.rfind("https://", 0) == 0;
+
     QDir().mkpath("/home/pi/yolo/captures");
 
     cv::Mat frame;
@@ -737,6 +742,9 @@ void runParkingCamera(const std::string& videoPath,
     auto wallStart =
         std::chrono::system_clock::now();
 
+    auto steadyStart =
+        std::chrono::steady_clock::now();
+
     while(cap.read(frame))
     {
         frameCounter++;
@@ -744,11 +752,32 @@ void runParkingCamera(const std::string& videoPath,
         double videoSec =
             cap.get(cv::CAP_PROP_POS_MSEC) / 1000.0;
 
-        auto frameTime =
-            wallStart +
-            std::chrono::milliseconds(
-                (long long)(videoSec * 1000.0)
-            );
+        std::chrono::system_clock::time_point frameTime;
+
+        if(liveStream)
+        {
+            auto now =
+                std::chrono::system_clock::now();
+
+            auto steadyNow =
+                std::chrono::steady_clock::now();
+
+            frameTime = now;
+
+            videoSec =
+                std::chrono::duration<double>(
+                    steadyNow - steadyStart
+                ).count();
+        }
+        else
+        {
+            frameTime =
+                wallStart +
+                std::chrono::milliseconds(
+                    (long long)(videoSec * 1000.0)
+                );
+        }
+
 
         if(frameCounter % processEveryFrame != 0)
             continue;
@@ -1000,6 +1029,7 @@ void runParkingCamera(const std::string& videoPath,
 
     cv::destroyAllWindows();
 }
+
 
 //
 
