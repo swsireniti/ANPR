@@ -562,8 +562,8 @@ int main(int argc, char *argv[])
     }
 
 
-
-    runVideo("/media/pi/user/video/1_stable.mp4",net, ocrNet);
+    runVideo("/media/pi/user/video/parkovka_anpr.mp4", net, ocrNet);
+    //runVideo("/media/pi/user/video/1_stable.mp4",net, ocrNet);
 
 
    //runFolder("/media/pi/user/uk",net,ocrNet);
