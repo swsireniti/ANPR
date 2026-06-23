@@ -14,11 +14,104 @@
 #include <iomanip>
 #include <sstream>
 #include <ctime>
-
-
 #include <thread>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlError>
+#include <QDebug>
 
 
+
+
+
+//Sql
+
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlError>
+#include <QDebug>
+
+
+
+bool initDatabase()
+{
+    QSqlDatabase db =
+        QSqlDatabase::addDatabase("QSQLITE");
+
+    db.setDatabaseName("parking.db");
+
+    if(!db.open())
+    {
+        qDebug()
+        << "DB OPEN ERROR:"
+        << db.lastError().text();
+
+        return false;
+    }
+
+    QSqlQuery query;
+
+    bool ok = query.exec(
+        "CREATE TABLE IF NOT EXISTS parking_events ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "plate TEXT,"
+        "enter_time TEXT,"
+        "exit_time TEXT,"
+        "duration_seconds INTEGER)"
+        );
+
+    if(!ok)
+    {
+        qDebug()
+        << query.lastError().text();
+    }
+
+    return ok;
+}
+
+
+void appendParkingDB(
+    const std::string& plate,
+    const std::string& enterTime,
+    const std::string& exitTime,
+    int durationSeconds)
+{
+    QSqlQuery query;
+
+    query.prepare(
+        "INSERT INTO parking_events "
+        "(plate, enter_time, exit_time, duration_seconds) "
+        "VALUES (?, ?, ?, ?)"
+        );
+
+    query.addBindValue(
+        QString::fromStdString(plate));
+
+    query.addBindValue(
+        QString::fromStdString(enterTime));
+
+    query.addBindValue(
+        QString::fromStdString(exitTime));
+
+    query.addBindValue(
+        durationSeconds);
+
+    if(!query.exec())
+    {
+        qDebug()
+        << "INSERT ERROR:"
+        << query.lastError().text();
+    }
+}
+
+
+
+
+
+
+
+
+//Sql
 std::string recognizePlate(cv::Mat plate,
                            cv::dnn::Net& ocrNet)
 {
@@ -86,7 +179,7 @@ std::string recognizePlate(cv::Mat plate,
 
     return result;
 }
-
+//
 
 std::vector<cv::Rect> detectPlates(cv::Mat& frame,cv::dnn::Net& net,float confThreshold = 0.8f,float nmsThreshold = 0.45f)
 {
@@ -587,6 +680,15 @@ void appendParkingLog(const ParkingCar& car,
         << ","
         << durBuf
         << std::endl;
+
+
+    appendParkingDB(
+        car.plate,
+        formatDateTime(car.enterTime),
+        formatDateTime(exitTime),
+        sec
+        );
+
 }
 void drawParkingInfo(cv::Mat& frame,
                      const std::vector<std::string>& events,
@@ -1139,6 +1241,23 @@ if(key == 27)
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
+initDatabase();
+
+
+
+QSqlQuery query;
+
+query.exec("DELETE FROM parking_events");
+query.exec(
+    "DELETE FROM sqlite_sequence "
+    "WHERE name='parking_events'"
+    );
+
+qDebug() << "SQLite cleared";
+
+
+
+
     std::cout << CV_VERSION << std::endl;
     // Загрузка YOLO
     std::cout
@@ -1177,8 +1296,8 @@ int main(int argc, char *argv[])
     //runVideo("/media/pi/user/video/1_stable.mp4",net, ocrNet);
 
 
-      //runParkingCamera("video/1_stable.mp4", net, ocrNet);  //1_stable.mp4
-        runVideo("video/1_stable.mp4", net, ocrNet);
+      runParkingCamera("video/1_stable.mp4", net, ocrNet);  //1_stable.mp4
+        //runVideo("video/1_stable.mp4", net, ocrNet);
 
     //runFolder("img_10",net,ocrNet);
 

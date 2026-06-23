@@ -1,7 +1,7 @@
 
 
 SOURCES += main.cpp
-
+QT += sql
 
 QT += core gui widgets
 
