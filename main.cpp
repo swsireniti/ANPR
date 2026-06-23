@@ -24,7 +24,7 @@
 
 
 
-//Sql
+//Sql4
 
 #include <QSqlDatabase>
 #include <QSqlQuery>
