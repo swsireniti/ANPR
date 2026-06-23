@@ -1,49 +1,7 @@
-# Qt
-
-*.user
-
-*.pro.user.*
-
-.qmake.stash
-
-
-
-# Build
-
-Makefile
-
-*.o
-
-
-
-# Binary
-
-yolo
-
-
-
-# Dataset
-
+build/
+.qtc_clangd/
+*.csv
+*.mp4
+img_10/
+video/
 captures/
-
-captures.zip
-
-img_test/
-
-img_10auto/
-
-
-
-# Models (оставь если модели общие и не хочешь хранить на GitHub)
-
-# model/
-
-
-
-# Qt build files
-
-moc_*
-
-ui_*
-
-qrc_*
