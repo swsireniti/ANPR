@@ -9,6 +9,7 @@ CONFIG += c++17 console
 
 CONFIG -= app_bundle
 
+
 QMAKE_RPATHDIR += /usr/local/lib
 
 INCLUDEPATH += /usr/local/include/opencv4
@@ -21,3 +22,6 @@ LIBS += -lopencv_highgui
 LIBS += -lopencv_imgcodecs
 LIBS += -lopencv_dnn
 LIBS += -lopencv_videoio
+
+
+
